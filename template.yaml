@@ -1,0 +1,57 @@
+# To deploy for the first time, and for each update,
+# run both of the following commands in order:
+#
+# aws cloudformation package \
+# --template-file template.yaml \
+# --output-template-file template-out.yaml \
+# --s3-bucket <your-s3-bucket-name>
+#
+# aws cloudformation deploy \=
+# --template-file <path-to-file>/template-out.yaml \
+# --parameter-overrides DeepLensTopic=<DEEPLENS_TOPIC> \
+# --stack-name <STACK_NAME>  \
+# --capabilities CAPABILITY_IAM
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+
+Parameters:
+  DeepLensTopic:
+    Type: String
+    Description: Topic path for DeepLens device "$aws/things/deeplens_..."
+
+Resources:
+  DeepLensFaceDetection:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Runtime: python2.7
+      Handler: greengrassHelloWorld.function_handler
+      CodeUri: ./src
+      Description: Outputs the JPEG bits to a FIFO file on AWS DeepLens
+      MemorySize: 1536
+      Timeout: 3
+
+  ProcessDeepLensQueue:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python2.7
+      Timeout: 30
+      MemorySize: 256
+      Handler: process_queue.handler
+      CodeUri: ./src
+      Environment:
+        Variables:
+          DETECTED_FACES_BUCKET: !Ref DetectedFaces
+
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DetectedFaces
+
+      Events:
+        DeepLensRule:
+          Type: IoTRule
+          Properties:
+            Sql: !Sub "SELECT *, timestamp() as unix_time FROM '${DeepLensTopic}'"
+
+  DetectedFaces:
+    Type: AWS::S3::Bucket
